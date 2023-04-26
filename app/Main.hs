@@ -1,8 +1,15 @@
-module Main where
+module Main (main) where
 
-import qualified MyLib (someFunc)
+import qualified Data.ByteString.Lazy.Char8 as BS
+import System.Environment (getArgs)
+
+import Lexer (runAlex)
+import Parser (parseMain)
 
 main :: IO ()
 main = do
-  putStrLn "Hello, Haskell!"
-  MyLib.someFunc
+  args <- getArgs
+  code <- BS.readFile (head args)
+  case runAlex code parseMain of
+    Left err -> putStrLn err
+    Right ast -> print ast
