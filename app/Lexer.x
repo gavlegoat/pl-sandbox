@@ -15,7 +15,7 @@ import Control.Monad (when)
 
 %wrapper "monadUserState-bytestring"
 
-@id = [a-z_] ([0-9a-zA-Z_])*
+@id = [a-z_] [0-9a-zA-Z_]*
 
 @integer = [0-9]+
 
@@ -24,6 +24,9 @@ tokens :-
 <0> $white+ ;
 
 -- Comments
+-- single line comments
+<0>       "--" .*$ ;
+-- multi-line comments
 <0>       "{-" { increaseCommentDepth `andBegin` comment }
 <0>       "-}" { \_ _ -> alexError "Error: end comment token outside comment" }
 <comment> "{-" { increaseCommentDepth }
@@ -75,11 +78,11 @@ tokens :-
 <0> "!"  { tok Not }
 
 -- Other tokens
-<0> "\\" { tok Lambda }
+<0> \\   { tok Lambda }
 <0> "->" { tok Arrow }
 <0> "="  { tok Defn}
 
-<0> @id     { tokId }
+<0> @id { tokId }
 
 {
 
