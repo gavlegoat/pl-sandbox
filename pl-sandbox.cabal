@@ -28,14 +28,18 @@ executable pl-sandbox
   other-modules:
     Lexer,
     Parser,
-    AST
+    AST,
+    Interpreter,
+    Typecheck
 
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:
   build-depends:
     base ^>=4.16.0.0,
     bytestring,
-    array
+    array,
+    containers,
+    mtl
 
   build-tool-depends:
     alex:alex,

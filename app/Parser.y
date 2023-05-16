@@ -35,6 +35,8 @@ import AST
   if    { Lex.If }
   then  { Lex.Then }
   else  { Lex.Else }
+  case  { Lex.Case }
+  of    { Lex.Of }
   -- Parens
   '(' { Lex.LParen }
   ')' { Lex.RParen }
@@ -57,10 +59,9 @@ import AST
   '!'  { Lex.Not }
   -- Data-carrying tokens
   id     { Lex.Identifier _ }
+  constr { Lex.Constructor _ }
   int    { Lex.Integer _ }
   string { Lex.String _ }
-  true   { Lex.TTrue }
-  false  { Lex.FFalse }
   -- Other tokens
   '\\' { Lex.Lambda }
   '->' { Lex.Arrow }
@@ -103,19 +104,36 @@ fexpr :: { Expr Info }
 
 aexpr :: { Expr Info }
   : if expr then expr else expr %shift { EIf () $2 $4 $6 }
+  | case expr of alts %shift           { ECase () $2 (reverse $4) }
   | let id '=' expr in expr %shift     { ELet () (getId $2) $4 $6 }
   | '\\' id '->' expr %shift           { ELambda () (getId $2) $4 }
   | base_expr                          { $1 }
 
 base_expr :: { Expr Info }
   : id       { EVar () (getId $1) }
+  | constr   { EConstr () (getId $1) }
   | constant { EConst () $1 }
 
 constant :: { Constant Info }
   : int    { CInt () (getInt $1) }
   | string { CString () (getString $1) }
-  | true   { CBool () True }
-  | false  { CBool () False }
+
+alts :: { [Alternative Info] }
+  : alt      { [$1] }
+  | alts alt { $2 : $1 }
+
+alt :: { Alternative Info }
+  : pattern '->' expr %shift { Alternative () $1 $3 }
+
+pattern :: { Pattern Info }
+  : constr patterns %shift { PConstr () (getId $1) (reverse $2) }
+  | '(' pattern ')'        { $2 }
+  | id                     { PVar () (getId $1) }
+  | constant               { PConst () $1 }
+
+patterns :: { [Pattern Info] }
+  : {- empty -}      { [] }
+  | patterns pattern { $2 : $1 }
 
 {
 
@@ -131,6 +149,7 @@ lexer = (Lex.alexMonadScan >>=)
 
 getId :: Lex.Token -> ByteString
 getId (Lex.Identifier id) = id
+getId (Lex.Constructor id) = id
 getId _ = error "Impossible error: Tried to extract an id from a non-id token"
 
 getInt :: Lex.Token -> Integer

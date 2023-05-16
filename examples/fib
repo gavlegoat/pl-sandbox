@@ -3,4 +3,4 @@ let fib = \x ->
       if x < 2
       then 1
       else fib (x - 1) + fib (x - 2) in
-{- then call fib -} fib 7
+{- then call fib -} fib 10

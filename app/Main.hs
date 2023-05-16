@@ -5,6 +5,8 @@ import System.Environment (getArgs)
 
 import Lexer (runAlex)
 import Parser (parseMain)
+-- import Interpreter
+import Typecheck
 
 main :: IO ()
 main = do
@@ -12,4 +14,6 @@ main = do
   code <- BS.readFile (head args)
   case runAlex code parseMain of
     Left err -> putStrLn err
-    Right ast -> print ast
+    Right expr -> case inferTypes expr of
+      Left errs -> print "Type Errors" >> mapM_ print errs
+      Right typed -> print typed

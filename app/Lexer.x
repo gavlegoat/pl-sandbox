@@ -17,6 +17,8 @@ import Control.Monad (when)
 
 @id = [a-z_] [0-9a-zA-Z_]*
 
+@constr = [A-Z] [0-9a-zA-Z_]*
+
 @integer = [0-9]+
 
 tokens :-
@@ -45,8 +47,6 @@ tokens :-
 
 -- Literals
 <0> @integer { tokInt }
-<0> "true"   { tok TTrue }
-<0> "false"  { tok FFalse }
 
 -- Keywords
 <0> let   { tok Let }
@@ -54,6 +54,8 @@ tokens :-
 <0> if    { tok If }
 <0> then  { tok Then }
 <0> else  { tok Else }
+<0> case  { tok Case }
+<0> of    { tok Of }
 
 -- Parens
 <0> "(" { tok LParen }
@@ -80,9 +82,10 @@ tokens :-
 -- Other tokens
 <0> \\   { tok Lambda }
 <0> "->" { tok Arrow }
-<0> "="  { tok Defn}
+<0> "="  { tok Defn }
 
-<0> @id { tokId }
+<0> @id     { tokId }
+<0> @constr { tokConstr }
 
 {
 
@@ -93,6 +96,8 @@ data Token
   | If
   | Then
   | Else
+  | Case
+  | Of
   -- Parens
   | LParen
   | RParen
@@ -116,10 +121,9 @@ data Token
   -- Literals
   | Integer Integer
   | String ByteString
-  | TTrue
-  | FFalse
   -- Variables
   | Identifier ByteString
+  | Constructor ByteString
   -- Other tokens
   | Lambda
   | Arrow
@@ -197,6 +201,9 @@ tok t _ _ = pure t
 
 tokId :: AlexAction Token
 tokId (_, _, s, _) l = pure $ Identifier $ BS.take l s
+
+tokConstr :: AlexAction Token
+tokConstr (_, _, s, _) l = pure $ Constructor $ BS.take l s
 
 tokInt :: AlexAction Token
 tokInt (_, _, s, _) l = pure $ Integer $ read $ BS.unpack $ BS.take l s
