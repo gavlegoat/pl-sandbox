@@ -15,7 +15,7 @@ import AST
 
 %expect 0
 
-%name parseMain expr
+%name parseMain start
 %tokentype { Lex.Token }
 %error { parseError }
 %errorhandlertype explist
@@ -68,6 +68,20 @@ import AST
   '='  { Lex.Defn }
 
 %%
+
+start :: { [Binding Info] }
+  : bindings { reverse $1 }
+
+bindings :: { [Binding Info] }
+  : binding          { [$1] }
+  | bindings binding { $2 : $1 }
+
+binding :: { Binding Info }
+  : vars '=' expr { let v = reverse $1 in Binding () (head v) (tail v) $3 }
+
+vars :: { [ByteString] }
+  : id      { [getId $1] }
+  | vars id { getId $2 : $1 }
 
 -- NOTE: Expression parsing is heavily influenced by GHC. See
 -- github.com/ghc/ghc/compiler/GHC/Parser.y

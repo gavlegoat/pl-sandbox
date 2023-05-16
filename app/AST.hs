@@ -11,7 +11,9 @@ This module contains basic type definitions for abstract syntax trees in the
 PL sandbox language.
 -}
 module AST
-  ( Constant (..)
+  ( Binding (..)
+  , bindingName
+  , Constant (..)
   , Binop (..)
   , Unop (..)
   , Expr (..)
@@ -22,6 +24,15 @@ module AST
   ) where
 
 import Data.ByteString.Lazy.Char8 (ByteString)
+
+data Binding a = Binding a ByteString [ByteString] (Expr a)
+  deriving (Show, Eq, Functor)
+
+instance Foldable Binding where
+  foldMap f (Binding i _ _ e) = f i <> foldMap f e
+
+bindingName :: Binding a -> ByteString
+bindingName (Binding _ name _ _) = name
 
 -- | Constants
 data Constant a

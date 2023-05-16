@@ -8,12 +8,13 @@ License     : BSD3
 Maintainer  : ganderso@cs.utexas.edu
 -}
 module Typecheck
-  ( inferTypes
+  ( inferTop
   ) where
 
 import Control.Monad.State
 import qualified Data.Map.Strict as M
 import Data.Map.Strict (Map)
+import Data.Maybe (fromJust)
 import Data.ByteString.Lazy.Char8 (ByteString)
 
 import AST
@@ -41,22 +42,28 @@ data Context = Context
 builtinTypes :: Map ByteString Type
 builtinTypes = M.fromList [("True", TBool), ("False", TBool)]
 
--- | An empty state for typechecking
-initContext :: Context
-initContext = Context { constraints = []
-                      , nextVar = 0
-                      }
-
--- | Infer types for an expression and all subexpressions.
---
--- The return value may either be a list of type errors or the typed
--- expression. Errors are expressed as constraints which should be unified
--- but cannot be.
-inferTypes :: Expr a -> Either [Constraint] (Expr Type)
-inferTypes expr =
-  let (e, st) = runState (annotate builtinTypes expr) initContext
+inferTop :: [Binding a] -> Either [Constraint] [Binding Type]
+inferTop bs =
+  let l = length bs
+      -- Give each binding a fresh type
+      types = M.union builtinTypes $
+                      M.fromList (zipWith (\b i -> (b, TVar i))
+                                          (map bindingName bs) [0..l-1])
+      initContext = Context { constraints = [], nextVar = l }
+      -- typecheck each binding in a context which includes all other bindings
+      (tbs, st) = runState (mapM (annotateBinding types) bs) initContext
       (subs, errs) = resolveConstraints $ constraints st
-   in if null errs then Right (substitute subs e) else Left errs
+   in if null errs
+         then Right $ map (substitute subs) tbs
+         else Left errs
+
+annotateBinding :: Map ByteString Type -> Binding a -> State Context (Binding Type)
+annotateBinding types (Binding _ name vars expr) = do
+  fts <- replicateM (length vars) freshVar
+  et <- annotate (M.union (M.fromList $ zip vars fts) types) expr
+  let retTy = foldr TArrow (exprInfo et) fts
+  unify (fromJust $ M.lookup name types) retTy
+  return $ Binding retTy name vars et
 
 -- | Add type annotations to each subexpression.
 --
@@ -263,23 +270,23 @@ resolveConstraints = resolveConstraints' M.empty [] where
 -- | Replace type variables in an expression with their substitutions.
 --
 -- Note that this function iterates to a fixed point.
-substitute :: Map Int Type -> Expr Type -> Expr Type
-substitute subs expr = let s = fmap substitute' expr
+substitute :: (Functor f, Foldable f) => Map Int Type -> f Type -> f Type
+substitute subs expr = let s = fmap substituteType expr
                            ts = fmap fst s
                         in if or (fmap snd s)
                               then substitute subs ts
                               else ts where
-  -- substitute' returns both the modified type and a boolean indicating
+  -- substituteType returns both the modified type and a boolean indicating
   -- whether the type is changed. This helps us determine when we can stop
   -- repeating calls to substitute.
-  substitute' :: Type -> (Type, Bool)
-  substitute' t = case t of
+  substituteType :: Type -> (Type, Bool)
+  substituteType t = case t of
     TVar n -> case M.lookup n subs of
                 Nothing -> (t, False)
                 Just t' -> (t', True)
-    TArrow a b -> let (ta, ca) = substitute' a
-                      (tb, cb) = substitute' b
+    TArrow a b -> let (ta, ca) = substituteType a
+                      (tb, cb) = substituteType b
                    in (TArrow ta tb, ca || cb)
-    TConstr n a -> let (ta, ca) = substitute' a
+    TConstr n a -> let (ta, ca) = substituteType a
                     in (TConstr n ta, ca)
     _ -> (t, False)

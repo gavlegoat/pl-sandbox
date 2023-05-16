@@ -29,7 +29,6 @@ executable pl-sandbox
     Lexer,
     Parser,
     AST,
-    Interpreter,
     Typecheck
 
   -- LANGUAGE extensions used by modules in this package.
