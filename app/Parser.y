@@ -9,7 +9,7 @@ import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.List (intercalate)
 
 import qualified Lexer as Lex
-import AST
+import Source
 
 }
 
@@ -66,6 +66,7 @@ import AST
   '\\' { Lex.Lambda }
   '->' { Lex.Arrow }
   '='  { Lex.Defn }
+  ';'  { Lex.Semi }
 
 %%
 
@@ -105,6 +106,8 @@ expr :: { Expr Info }
   | prefix_expr    { $1 }
 
 -- Expressions with optional prefix operators
+-- All of these constructors shift because they should bind less tightly than
+-- function application.
 prefix_expr :: { Expr Info }
   : '!' fexpr %shift { EUnop () (UNot ()) $2 }
   | '-' fexpr %shift { EUnop () (UNegate ()) $2 }
@@ -137,7 +140,7 @@ alts :: { [Alternative Info] }
   | alts alt { $2 : $1 }
 
 alt :: { Alternative Info }
-  : pattern '->' expr %shift { Alternative () $1 $3 }
+  : pattern '->' expr ';' { Alternative () $1 $3 }
 
 pattern :: { Pattern Info }
   : constr patterns %shift { PConstr () (getId $1) (reverse $2) }
@@ -166,7 +169,7 @@ getId (Lex.Identifier id) = id
 getId (Lex.Constructor id) = id
 getId _ = error "Impossible error: Tried to extract an id from a non-id token"
 
-getInt :: Lex.Token -> Integer
+getInt :: Lex.Token -> Int
 getInt (Lex.Integer i) = i
 getInt _ = error "Impossible error: Tried to extract an int from a non-int token"
 

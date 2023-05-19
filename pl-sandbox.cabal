@@ -28,8 +28,11 @@ executable pl-sandbox
   other-modules:
     Lexer,
     Parser,
-    AST,
-    Typecheck
+    Source,
+    Type,
+    Typecheck,
+    Core,
+    Desugar
 
   -- LANGUAGE extensions used by modules in this package.
   -- other-extensions:

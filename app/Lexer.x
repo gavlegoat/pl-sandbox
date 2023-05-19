@@ -83,6 +83,7 @@ tokens :-
 <0> \\   { tok Lambda }
 <0> "->" { tok Arrow }
 <0> "="  { tok Defn }
+<0> ";"  { tok Semi }
 
 <0> @id     { tokId }
 <0> @constr { tokConstr }
@@ -119,7 +120,7 @@ data Token
   | Or
   | Not
   -- Literals
-  | Integer Integer
+  | Integer Int
   | String ByteString
   -- Variables
   | Identifier ByteString
@@ -128,6 +129,7 @@ data Token
   | Lambda
   | Arrow
   | Defn
+  | Semi
   | EOF
 
 data AlexUserState = AlexUserState

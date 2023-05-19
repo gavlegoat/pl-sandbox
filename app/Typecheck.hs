@@ -6,6 +6,9 @@ Description : Type checking and inference for the PL sandbox language.
 Copyright   : (c) Greg Anderson, 2023
 License     : BSD3
 Maintainer  : ganderso@cs.utexas.edu
+
+This module infers types for all expressions in a PL sandbox language program
+and annotates each AST node with its type.
 -}
 module Typecheck
   ( inferTop
@@ -17,16 +20,8 @@ import Data.Map.Strict (Map)
 import Data.Maybe (fromJust)
 import Data.ByteString.Lazy.Char8 (ByteString)
 
-import AST
-
--- | Types
-data Type = TInt                    -- ^ Integer type
-          | TString                 -- ^ String type
-          | TBool                   -- ^ Boolean type
-          | TVar Int                -- ^ Type variable
-          | TArrow Type Type        -- ^ Function type
-          | TConstr ByteString Type -- ^ Type constructor
-          deriving (Show, Eq)
+import Source
+import Type
 
 -- | Type constraint.
 --
@@ -39,9 +34,17 @@ data Context = Context
   , nextVar :: Int               -- ^ The next free variable index
   }
 
+-- | The types of built-in values.
+--
+-- Currently, only booleans are built-in. Operators are handled separately
+-- because they are syntactically different.
 builtinTypes :: Map ByteString Type
 builtinTypes = M.fromList [("True", TBool), ("False", TBool)]
 
+-- | Infer types for all expressiosn in a program.
+--
+-- If we cannot infer a consistent set of types for this program, then we
+-- instead return a set of constraints which could not be satisfied.
 inferTop :: [Binding a] -> Either [Constraint] [Binding Type]
 inferTop bs =
   let l = length bs
@@ -57,7 +60,9 @@ inferTop bs =
          then Right $ map (substitute subs) tbs
          else Left errs
 
-annotateBinding :: Map ByteString Type -> Binding a -> State Context (Binding Type)
+-- | Infer types for one binding given a typing context.
+annotateBinding :: Map ByteString Type -> Binding a
+                -> State Context (Binding Type)
 annotateBinding types (Binding _ name vars expr) = do
   fts <- replicateM (length vars) freshVar
   et <- annotate (M.union (M.fromList $ zip vars fts) types) expr
@@ -67,15 +72,18 @@ annotateBinding types (Binding _ name vars expr) = do
 
 -- | Add type annotations to each subexpression.
 --
--- The annotations added by this function include many tyep variables which
+-- The annotations added by this function include many type variables which
 -- are not resolved until later.
 annotate :: Map ByteString Type -> Expr a -> State Context (Expr Type)
 annotate types expr = case expr of
+  -- Variables are given a fresh type unless they already have a type in the
+  -- context
   EVar _ name -> case M.lookup name types of
     Nothing -> flip EVar name <$> freshVar
     Just t -> return $ EVar t name
   EConst _ (CInt _ int) -> return $ EConst TInt (CInt TInt int)
   EConst _ (CString _ str) -> return $ EConst TString (CString TString str)
+  -- Constructors are handled identically to variables.
   EConstr _ name -> case M.lookup name types of
     Nothing -> flip EConstr name <$> freshVar
     Just t -> return $ EConstr t name
@@ -108,6 +116,8 @@ annotate types expr = case expr of
     unify (exprInfo t) (exprInfo f)
     return $ EIf (exprInfo t) c t f
   ECase _ e alts -> do
+    -- For case statements, we need to ensure that all patterns have the same
+    -- type and that all expressions in the alternatives have the same type.
     (pets, aets) <- mapAndUnzipM (annotateAlt types) alts
     unifyAll $ map patternInfo pets
     unifyAll $ map exprInfo aets
@@ -128,6 +138,7 @@ annotate types expr = case expr of
     b <- annotate (M.insert name (exprInfo v) types) body
     return $ ELet (exprInfo b) name v b
 
+-- | Infer types for case alternatives
 annotateAlt :: Map ByteString Type -> Alternative a
             -> State Context (Pattern Type, Expr Type)
 annotateAlt types (Alternative _ pat expr) = do
@@ -135,6 +146,10 @@ annotateAlt types (Alternative _ pat expr) = do
   et <- annotate (M.union mp types) expr
   return (pt, et)
 
+-- | Infer the type of an expression which would produce a particular pattern.
+--
+-- Note that this function additionally returns an extension to the typing
+-- context which binds any variables encountered in the pattern.
 annotatePattern :: Map ByteString Type -> Pattern a
                 -> State Context (Pattern Type, Map ByteString Type)
 annotatePattern types pat = case pat of
@@ -150,6 +165,7 @@ annotatePattern types pat = case pat of
   PConst _ (CString _ s) ->
     return (PConst TString (CString TString s), M.empty)
 
+-- | Construct an alternative.
 buildAlt :: Pattern Type -> Expr Type -> Alternative Type
 buildAlt p o = Alternative (exprInfo o) p o
 
@@ -164,10 +180,12 @@ freshVar = do
 unify :: Type -> Type -> State Context ()
 unify t1 t2 = modify (\st -> st { constraints = (t1, t2) : constraints st })
 
+-- | Assert that a list of types should all be the same.
 unifyAll :: [Type] -> State Context ()
 unifyAll (t : ts) = mapM_ (unify t) ts
 unifyAll [] = return ()
 
+-- | Assert that a function should have a type consistent with its arguments.
 unifyArgs :: Type -> [Type] -> State Context ()
 unifyArgs _    [] = return ()
 unifyArgs func as = unify func $ foldr1 TArrow as
@@ -228,7 +246,7 @@ resultTypeUnary op = case op of
 typeUnop :: Unop a -> Unop Type
 typeUnop op = fmap (const $ resultTypeUnary op) op
 
--- | Create a substitution map which resolve all type constraints.
+-- | Create a substitution map which resolves all type constraints.
 --
 -- The return value is a substitution along with a set of constraints which
 -- could not be satisfied.
