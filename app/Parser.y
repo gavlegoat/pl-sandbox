@@ -71,11 +71,12 @@ import Source
 %%
 
 start :: { [Binding Info] }
-  : bindings { reverse $1 }
+  : bindings         { reverse $1 }
+  | bindings ';' ';' { reverse $1 }
 
 bindings :: { [Binding Info] }
-  : binding          { [$1] }
-  | bindings binding { $2 : $1 }
+  : binding                  { [$1] }
+  | bindings ';' ';' binding { $4 : $1 }
 
 binding :: { Binding Info }
   : vars '=' expr { let v = reverse $1 in Binding () (head v) (tail v) $3 }

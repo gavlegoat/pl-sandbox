@@ -10,9 +10,12 @@ This module defines the types which can be used in PL sandbox languages.
 module Type
   ( Type (..)
   , isLiteralType
+  , tvars
   ) where
 
 import Data.ByteString.Lazy.Char8 (ByteString)
+import Data.Set (Set)
+import qualified Data.Set as Set
 
 -- | Types
 data Type = TInt                    -- ^ Integer type
@@ -41,3 +44,11 @@ isLiteralType :: Type -> Bool
 isLiteralType TInt = True
 isLiteralType TString = True
 isLiteralType _ = False
+
+-- | Collect the set of all free variables in a type.
+tvars :: Type -> Set Int
+tvars (TVar i) = Set.singleton i
+tvars (TArrow t1 t2) = Set.union (tvars t1) (tvars t2)
+tvars (TForall n t) = Set.delete n (tvars t)
+tvars (TConstr n t) = tvars t
+tvars _ = Set.empty

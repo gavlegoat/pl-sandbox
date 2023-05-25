@@ -18,8 +18,9 @@ import Control.Monad.State
 import qualified Data.Map.Strict as M
 import Data.Map.Strict (Map)
 import qualified Data.Graph as Graph
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, fromMaybe)
 import Data.ByteString.Lazy.Char8 (ByteString)
+import qualified Data.Set as Set
 
 import Source
 import Type
@@ -49,17 +50,14 @@ builtinTypes = M.fromList [("True", TBool), ("False", TBool)]
 -- 2) For each block, typecheck and unify.
 -- 3) After each block, generalize types.
 
--- TODO: All lookups and case matches on types should handle forall
-
 -- | Infer types for a whole program.
 inferTop :: [Binding a] -> Either [Constraint] [Binding Type]
 inferTop bs =
   let bss = groupAndSort bs
    in snd $ foldl inferBlock (builtinTypes, Right []) bss
  where
-   inferBlock :: (Map ByteString Type, Either [Constraint] [Binding Type]) ->
-                 [Binding a] ->
-                 (Map ByteString Type, Either [Constraint] [Binding Type])
+   -- infer types for a block of mutually recursive definitions. This function
+   -- also updates the typing context with all of the new types.
    inferBlock (tys, prev) bindings =
      case inferMutRec tys bindings of
        Left errs -> (tys, Left errs)
@@ -68,12 +66,13 @@ inferTop bs =
              newBinds = extractTypes gbinds
           in (M.union newBinds tys, case prev of
                                       Left errs -> Left errs
-                                      Right pbinds -> Right $ pbinds ++ binds)
-   extractTypes :: [Binding Type] -> Map ByteString Type
+                                      Right pbinds -> Right $ pbinds ++ gbinds)
+   -- Map binding names to types.
    extractTypes =
      foldr (\b m -> M.insert (bindingName b) (bindingInfo b) m) M.empty
-   generalize :: Binding Type -> Binding Type
-   generalize = undefined
+   -- Add quantifiers for every remaining type variable.
+   generalize (Binding ty n as e) =
+     Binding (Set.foldr TForall ty $ tvars ty) n as e
 
 -- | Group bindings into mutually recursive sets then sort those sets by usage.
 --
@@ -133,13 +132,13 @@ annotate types expr = case expr of
   -- context
   EVar _ name -> case M.lookup name types of
     Nothing -> flip EVar name <$> freshVar
-    Just t -> return $ EVar t name
+    Just t -> flip EVar name <$> inst t
   EConst _ (CInt _ int) -> return $ EConst TInt (CInt TInt int)
   EConst _ (CString _ str) -> return $ EConst TString (CString TString str)
   -- Constructors are handled identically to variables.
   EConstr _ name -> case M.lookup name types of
     Nothing -> flip EConstr name <$> freshVar
-    Just t -> return $ EConstr t name
+    Just t -> flip EConstr name <$> inst t
   EApp _ func arg -> do
     f <- annotate types func
     a <- annotate types arg
@@ -210,13 +209,27 @@ annotatePattern types pat = case pat of
     (pts, mps) <- mapAndUnzipM (annotatePattern types) pats
     ct <- case M.lookup name types of
             Nothing -> freshVar
-            Just tm -> return tm
+            Just tm -> inst tm
     unifyArgs ct $ map patternInfo pts
     return (PConstr ct name pts, foldr M.union M.empty mps)
   PVar _ name -> freshVar >>= \ft -> return (PVar ft name, M.singleton name ft)
   PConst _ (CInt _ i) -> return (PConst TInt (CInt TInt i), M.empty)
   PConst _ (CString _ s) ->
     return (PConst TString (CString TString s), M.empty)
+
+-- | Instantiate a possibly quantified type.
+--
+-- If the input type is quantified, replace each bound type variable with a
+-- fresh free type variable.
+inst :: Type -> State Context Type
+inst = inst' M.empty where
+  inst' tys (TForall n t) = do
+    f <- freshVar
+    inst' (M.insert n f tys) t
+  inst' tys (TArrow t1 t2) = liftM2 TArrow (inst' tys t1) (inst' tys t2)
+  inst' tys (TConstr name t) = TConstr name <$> inst' tys t
+  inst' tys (TVar n) = return $ fromMaybe (TVar n) (M.lookup n tys)
+  inst' _ t = return t
 
 -- | Construct an alternative.
 buildAlt :: Pattern Type -> Expr Type -> Alternative Type
@@ -329,6 +342,7 @@ resolveConstraints = resolveConstraints' M.empty [] where
     TArrow arg body -> case t2 of
       TVar m -> resolveConstraints' (M.insert m t1 types) errs cs
       TArrow a b -> resolveConstraints' types errs ((a, arg) : (b, body) : cs)
+      TForall _ _ -> error "Internal error: unifying quantified type"
       _ -> resolveConstraints' types ((t1, t2) : errs) cs
     TConstr name arg -> case t2 of
       TVar m -> resolveConstraints' (M.insert m t1 types) errs cs
@@ -337,6 +351,7 @@ resolveConstraints = resolveConstraints' M.empty [] where
            then resolveConstraints' types errs ((arg, a2) : cs)
            else resolveConstraints' types ((t1, t2) : errs) cs
       _ -> resolveConstraints' types ((t1, t2) : errs) cs
+    TForall _ _ -> error "Internal error: unifying quantified type"
 
 -- | Replace type variables in an expression with their substitutions.
 --
@@ -360,4 +375,5 @@ substitute subs expr = let s = fmap substituteType expr
                    in (TArrow ta tb, ca || cb)
     TConstr n a -> let (ta, ca) = substituteType a
                     in (TConstr n ta, ca)
+    TForall _ _ -> error "Internal error: substituting quantified type"
     _ -> (t, False)

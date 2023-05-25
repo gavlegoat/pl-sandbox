@@ -62,7 +62,7 @@ module Desugar
   ( desugar
   ) where
 
--- TODO: Need to insert a type applications. Type applications may preceed any
+-- TODO: Need to insert a type applications. Type applications may precede any
 -- value application.
 
 import Control.Arrow (second)
@@ -97,6 +97,9 @@ desugarBinding (S.Binding ty name args expr) =
    expandLambda _ [] e = e
    expandLambda t@(TArrow _ t2) (a : as) e =
      S.ELambda t a (expandLambda t2 as e)
+   -- Free variables are all quantified in top level bindings, and we re-add
+   -- big lambdas later, so we can just forget quantification here
+   expandLambda (TForall n t) as e = expandLambda t as e
    expandLambda _ _ _ = error "Internal error: ill-typed function in expand"
 
 -- | Desugar an expression.
@@ -357,7 +360,7 @@ pruneBigLambdas bound expr = case expr of
 --
 -- In the preceding transformation, we added BigLams to the expression but we
 -- did not add matching type applications when those BigLams are called. This
--- function resovles that by inserting type applications every time a big
+-- function resolves that by inserting type applications every time a big
 -- lambda is applied to an argument.
 addTyApps :: C.Expr -> C.Expr
 addTyApps expr = case expr of
@@ -378,4 +381,5 @@ addTyApps expr = case expr of
    addAppLAlt (C.LAlt l e) = C.LAlt l (addTyApps e)
    addAppsBind (C.BNonRec v e) = C.BNonRec v (addTyApps e)
    addAppsBind (C.BRec bs) = C.BRec $ map (second addTyApps) bs
-   addAppDef = undefined
+   addAppDef C.NoDefault = C.NoDefault
+   addAppDef C.Default var e = C.Default var (addTyApps e)

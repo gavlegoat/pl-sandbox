@@ -95,8 +95,8 @@ data Alts = CAlts [CAlt] Default
           | LAlts [LAlt] Default
 
 instance Show Alts where
-  show (CAlts alts def) = intercalate " | " (map show alts) ++ show def
-  show (LAlts alts def) = intercalate " | " (map show alts) ++ show def
+  show (CAlts as d) = intercalate " | " (map show as) ++ " | " ++ show d
+  show (LAlts as d) = intercalate " | " (map show as) ++ " | " ++ show d
 
 -- | Alternatives matching constructor patterns.
 --
@@ -119,7 +119,7 @@ data Default = NoDefault | Default Var Expr
 
 instance Show Default where
   show NoDefault = ""
-  show (Default v e) = " | " ++ show v ++ " -> " ++ show e
+  show (Default v e) = show v ++ " -> " ++ show e
 
 -- | Variables.
 --
