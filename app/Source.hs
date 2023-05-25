@@ -32,6 +32,7 @@ constructor to mark modified nodes, and then we know we can stop as soon as
 module Source
   ( Binding (..)
   , bindingName
+  , bindingInfo
   , Constant (..)
   , Binop (..)
   , Unop (..)
@@ -40,6 +41,7 @@ module Source
   , Alternative (..)
   , Pattern (..)
   , patternInfo
+  , occurs
   ) where
 
 import Data.ByteString.Lazy.Char8 (ByteString)
@@ -64,6 +66,10 @@ instance Foldable Binding where
 -- | Get the name bound by a binding.
 bindingName :: Binding a -> ByteString
 bindingName (Binding _ name _ _) = name
+
+-- | Get the info associated with a binding.
+bindingInfo :: Binding a -> a
+bindingInfo (Binding i _ _ _) = i
 
 -- | Constants in the source language.
 --
@@ -200,3 +206,40 @@ patternInfo :: Pattern a -> a
 patternInfo (PConstr i _ _) = i
 patternInfo (PVar i _) = i
 patternInfo (PConst i _) = i
+
+-- | Determine whether a name occurs in an expression.
+--
+-- This decides whether bindings need to be recursive, so it also considers
+-- shadowing. That is, if @name@ appears in @expr@, but only inside of a scope
+-- where @name@ is rebound, then we don't consider that an occurance of @name@.
+occurs :: ByteString -> Expr a -> Bool
+occurs name expr = case expr of
+  EVar _ n -> n == name
+  EConst _ _ -> False
+  EConstr _ _ -> False
+  EApp _ f a -> occurs name f || occurs name a
+  EBinop _ l _ r -> occurs name l || occurs name r
+  EUnop _ _ a -> occurs name a
+  EIf _ c t f -> occurs name c || occurs name t || occurs name f
+  ECase _ e as -> occurs name e || any (occursAlt name) as
+  -- Function definition and let introduce new bindings, so we check for
+  -- shadowing in these cases.
+  ELambda _ n b -> n /= name && occurs name b
+  ELet _ n d b -> occurs name d || (n /= name && occurs name b)
+
+-- | Determine whether a name occurs in an alternative in a case expression.
+occursAlt :: ByteString -> Alternative a -> Bool
+occursAlt name (Alternative _ pat expr) =
+  -- If `name` appears in `pat` then it will be shadowed in `expr`
+  not (occursPattern name pat) && occurs name expr
+
+-- | Determine whether a name occurs in a pattern.
+--
+-- This is used to check for shadowing since if a name occurs in a pattern, the
+-- same name from the outer scope can't be referenced in the corresponding case
+-- alternative.
+occursPattern :: ByteString -> Pattern a -> Bool
+occursPattern name pat = case pat of
+  PConstr _ _ pats -> any (occursPattern name) pats
+  PVar _ n -> n == name
+  PConst _ _ -> False

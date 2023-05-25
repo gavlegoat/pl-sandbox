@@ -86,11 +86,18 @@ desugar binds = [C.BRec $ map desugarBinding binds]
 -- | Desugar a single binding.
 desugarBinding :: S.Binding Type -> (C.Var, C.Expr)
 desugarBinding (S.Binding ty name args expr) =
-  let e = undefined ty args expr  -- expand lambda
+  let e = expandLambda ty args expr
       de = desugarExpr e
       pe = pruneBigLambdas Set.empty de
       ae = addTyApps pe
    in (C.Var name $ C.typeof ae, ae)
+ where
+   -- Convert a binding with arguments to a zero-argument binding to a lambda.
+   -- Note that the type of a binding is already the type of the lambda.
+   expandLambda _ [] e = e
+   expandLambda t@(TArrow _ t2) (a : as) e =
+     S.ELambda t a (expandLambda t2 as e)
+   expandLambda _ _ _ = error "Internal error: ill-typed function in expand"
 
 -- | Desugar an expression.
 desugarExpr :: S.Expr Type -> C.Expr
@@ -133,12 +140,14 @@ desugarExpr expr = case expr of
   S.ELet ty name defn body ->
     let v = C.Var name $ S.exprInfo body
         d = desugarExpr defn
-     in C.ELet ty (if occurs name defn then C.BRec [(v, d)] else C.BNonRec v d)
+     in C.ELet ty (if S.occurs name defn
+                      then C.BRec [(v, d)]
+                      else C.BNonRec v d)
                   (desugarExpr body)
 
 addBigLambdas :: Type -> C.Expr -> C.Expr
 addBigLambdas (TVar n) e = C.EBigLam (TForall n $ C.typeof e) n e
-addBigLambdas (TArrow t1 t2) e = (addBigLambdas t1 . addBigLambdas t2) e
+addBigLambdas (TArrow t1 t2) e = addBigLambdas t1 $ addBigLambdas t2 e
 addBigLambdas (TConstr _ t) e = addBigLambdas t e
 addBigLambdas _ e = e
 
@@ -290,43 +299,6 @@ getCAlts alts =
    getVar (S.PVar t v) = C.Var v t
    getVar _ = error "Internal error: trying to get var from non-var pattern"
 
--- | Determine whether a name occurs in an expression.
---
--- This decides whether bindings need to be recursive, so it also considers
--- shadowing. That is, if @name@ appears in @expr@, but only inside of a scope
--- where @name@ is rebound, then we don't consider that an occurance of @name@.
-occurs :: ByteString -> S.Expr a -> Bool
-occurs name expr = case expr of
-  S.EVar _ n -> n == name
-  S.EConst _ _ -> False
-  S.EConstr _ _ -> False
-  S.EApp _ f a -> occurs name f || occurs name a
-  S.EBinop _ l _ r -> occurs name l || occurs name r
-  S.EUnop _ _ a -> occurs name a
-  S.EIf _ c t f -> occurs name c || occurs name t || occurs name f
-  S.ECase _ e as -> occurs name e || any (occursAlt name) as
-  -- Function definition and let introduce new bindings, so we check for
-  -- shadowing in these cases.
-  S.ELambda _ n b -> n /= name && occurs name b
-  S.ELet _ n d b -> occurs name d || (n /= name && occurs name b)
-
--- | Determine whether a name occurs in an alternative in a case expression.
-occursAlt :: ByteString -> S.Alternative a -> Bool
-occursAlt name (S.Alternative _ pat expr) =
-  -- If `name` appears in `pat` then it will be shadowed in `expr`
-  not (occursPattern name pat) && occurs name expr
-
--- | Determine whether a name occurs in a pattern.
---
--- This is used to check for shadowing since if a name occurs in a pattern, the
--- same name from the outer scope can't be referenced in the corresponding case
--- alternative.
-occursPattern :: ByteString -> S.Pattern a -> Bool
-occursPattern name pat = case pat of
-  S.PConstr _ _ pats -> any (occursPattern name) pats
-  S.PVar _ n -> n == name
-  S.PConst _ _ -> False
-
 {-
 For illustration, here is a stack trace of a call to pruneBigLambda starting
 from a function `compose f g x = f (g x)`
@@ -385,7 +357,25 @@ pruneBigLambdas bound expr = case expr of
 --
 -- In the preceding transformation, we added BigLams to the expression but we
 -- did not add matching type applications when those BigLams are called. This
--- function resovles that by inserting type applications every time an
--- application has a type which is a free variable.
+-- function resovles that by inserting type applications every time a big
+-- lambda is applied to an argument.
 addTyApps :: C.Expr -> C.Expr
-addTyApps = undefined
+addTyApps expr = case expr of
+  C.EApp ty e1 e2 -> case e1 of
+    C.EBigLam (TForall n t) tv b -> undefined
+    C.EBigLam{} -> error "Internal error: ill-typed big lambda"
+    e -> C.EApp ty (addTyApps e1) (addTyApps e2)
+  C.ETyApp ty e t -> C.ETyApp ty (addTyApps e) t
+  C.ELambda ty v e -> C.ELambda ty v (addTyApps e)
+  C.EBigLam ty v e -> C.EBigLam ty v (addTyApps e)
+  C.ECase ty e as -> C.ECase ty (addTyApps e) (addAppsAlts as)
+  C.ELet ty b e -> C.ELet ty (addAppsBind b) (addTyApps e)
+  e -> e
+ where
+   addAppsAlts (C.CAlts as d) = C.CAlts (map addAppCAlt as) (addAppDef d)
+   addAppsAlts (C.LAlts as d) = C.LAlts (map addAppLAlt as) (addAppDef d)
+   addAppCAlt (C.CAlt n vs e) = C.CAlt n vs (addTyApps e)
+   addAppLAlt (C.LAlt l e) = C.LAlt l (addTyApps e)
+   addAppsBind (C.BNonRec v e) = C.BNonRec v (addTyApps e)
+   addAppsBind (C.BRec bs) = C.BRec $ map (second addTyApps) bs
+   addAppDef = undefined

@@ -17,6 +17,7 @@ module Typecheck
 import Control.Monad.State
 import qualified Data.Map.Strict as M
 import Data.Map.Strict (Map)
+import qualified Data.Graph as Graph
 import Data.Maybe (fromJust)
 import Data.ByteString.Lazy.Char8 (ByteString)
 
@@ -41,15 +42,67 @@ data Context = Context
 builtinTypes :: Map ByteString Type
 builtinTypes = M.fromList [("True", TBool), ("False", TBool)]
 
--- | Infer types for all expressiosn in a program.
+-- The top-level structure works like this:
+-- 1) Group and sort top-level bindings by inclusiong so that every binding
+--    appears in a minimal block of mutual recursive definitions and each
+--    block appears before its definitions are used.
+-- 2) For each block, typecheck and unify.
+-- 3) After each block, generalize types.
+
+-- TODO: All lookups and case matches on types should handle forall
+
+-- | Infer types for a whole program.
+inferTop :: [Binding a] -> Either [Constraint] [Binding Type]
+inferTop bs =
+  let bss = groupAndSort bs
+   in snd $ foldl inferBlock (builtinTypes, Right []) bss
+ where
+   inferBlock :: (Map ByteString Type, Either [Constraint] [Binding Type]) ->
+                 [Binding a] ->
+                 (Map ByteString Type, Either [Constraint] [Binding Type])
+   inferBlock (tys, prev) bindings =
+     case inferMutRec tys bindings of
+       Left errs -> (tys, Left errs)
+       Right binds ->
+         let gbinds = map generalize binds
+             newBinds = extractTypes gbinds
+          in (M.union newBinds tys, case prev of
+                                      Left errs -> Left errs
+                                      Right pbinds -> Right $ pbinds ++ binds)
+   extractTypes :: [Binding Type] -> Map ByteString Type
+   extractTypes =
+     foldr (\b m -> M.insert (bindingName b) (bindingInfo b) m) M.empty
+   generalize :: Binding Type -> Binding Type
+   generalize = undefined
+
+-- | Group bindings into mutually recursive sets then sort those sets by usage.
+--
+-- Each binding may refer to other bindings. In order to infer general types,
+-- we must typecheck bindings before they are used. However, in the case of
+-- mutually recursive bindings this is impossible. This function finds minimal
+-- sets of mutually recurisve bindings which must be typechecked together,
+-- then sorts these sets so that definitions are typed before they are used.
+-- In graph terms, this is just the strongly connected components of the
+-- dependency graph, sorted reverse topologically.
+groupAndSort :: [Binding a] -> [[Binding a]]
+groupAndSort binds =
+  map Graph.flattenSCC $ Graph.stronglyConnComp dependencyGraph
+ where
+   dependencyGraph = map getEdges binds
+   getEdges b@(Binding _ name args expr) =
+     (b, name, filter (\n -> notElem n args && occurs n expr) bindingNames)
+   bindingNames = map bindingName binds
+
+-- | Infer types for a set of mutually recursive bindings.
 --
 -- If we cannot infer a consistent set of types for this program, then we
 -- instead return a set of constraints which could not be satisfied.
-inferTop :: [Binding a] -> Either [Constraint] [Binding Type]
-inferTop bs =
+inferMutRec :: Map ByteString Type -> [Binding a] ->
+               Either [Constraint] [Binding Type]
+inferMutRec tys bs =
   let l = length bs
       -- Give each binding a fresh type
-      types = M.union builtinTypes $
+      types = M.union tys $
                       M.fromList (zipWith (\b i -> (b, TVar i))
                                           (map bindingName bs) [0..l-1])
       initContext = Context { constraints = [], nextVar = l }
