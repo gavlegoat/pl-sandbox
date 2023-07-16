@@ -50,5 +50,5 @@ tvars :: Type -> Set Int
 tvars (TVar i) = Set.singleton i
 tvars (TArrow t1 t2) = Set.union (tvars t1) (tvars t2)
 tvars (TForall n t) = Set.delete n (tvars t)
-tvars (TConstr n t) = tvars t
+tvars (TConstr _ t) = tvars t
 tvars _ = Set.empty

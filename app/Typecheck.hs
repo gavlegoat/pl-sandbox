@@ -5,7 +5,7 @@ Module      : Typecheck
 Description : Type checking and inference for the PL sandbox language.
 Copyright   : (c) Greg Anderson, 2023
 License     : BSD3
-Maintainer  : ganderso@cs.utexas.edu
+Maintainer  : grega@reed.edu
 
 This module infers types for all expressions in a PL sandbox language program
 and annotates each AST node with its type.
@@ -73,24 +73,6 @@ inferTop bs =
    -- Add quantifiers for every remaining type variable.
    generalize (Binding ty n as e) =
      Binding (Set.foldr TForall ty $ tvars ty) n as e
-
--- | Group bindings into mutually recursive sets then sort those sets by usage.
---
--- Each binding may refer to other bindings. In order to infer general types,
--- we must typecheck bindings before they are used. However, in the case of
--- mutually recursive bindings this is impossible. This function finds minimal
--- sets of mutually recurisve bindings which must be typechecked together,
--- then sorts these sets so that definitions are typed before they are used.
--- In graph terms, this is just the strongly connected components of the
--- dependency graph, sorted reverse topologically.
-groupAndSort :: [Binding a] -> [[Binding a]]
-groupAndSort binds =
-  map Graph.flattenSCC $ Graph.stronglyConnComp dependencyGraph
- where
-   dependencyGraph = map getEdges binds
-   getEdges b@(Binding _ name args expr) =
-     (b, name, filter (\n -> notElem n args && occurs n expr) bindingNames)
-   bindingNames = map bindingName binds
 
 -- | Infer types for a set of mutually recursive bindings.
 --
@@ -231,7 +213,7 @@ inst = inst' M.empty where
   inst' tys (TVar n) = return $ fromMaybe (TVar n) (M.lookup n tys)
   inst' _ t = return t
 
--- | Construct an alternative.
+-- | Coalternative.
 buildAlt :: Pattern Type -> Expr Type -> Alternative Type
 buildAlt p o = Alternative (exprInfo o) p o
 

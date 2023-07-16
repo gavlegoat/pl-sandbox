@@ -58,17 +58,17 @@ is replaced by
 @
 -}
 
+-- Special identifiers introduced by the desugarer:
+--   p$0, p$1, ...: pattern matching variables
+
 module Desugar
   ( desugar
   ) where
 
--- TODO: Need to insert a type applications. Type applications may precede any
--- value application.
-
 import Control.Arrow (second)
-import Data.ByteString.Lazy.Char8 (ByteString)
+import Data.ByteString.Lazy.Char8 (ByteString, pack)
 import Data.Maybe (mapMaybe)
-import Data.List (nub)
+import Data.List (nub, findIndex)
 import qualified Data.Set as Set
 import Data.Set (Set)
 
@@ -78,10 +78,12 @@ import Type
 
 -- | Desugar a top-level program.
 --
--- For the moment, we simply assume all top level bindings are all mutually
--- recursive with each other.
+-- NOTE: All core bindings are currently recursive.
 desugar :: [S.Binding Type] -> [C.Binding]
-desugar binds = [C.BRec $ map desugarBinding binds]
+desugar binds = --[C.BRec $ map desugarBinding binds]
+  let bss = groupAndSort binds
+      desugared = map (map desugarBinding) bss
+   in map C.BRec desugared
 
 -- | Desugar a single binding.
 desugarBinding :: S.Binding Type -> (C.Var, C.Expr)
@@ -257,50 +259,87 @@ getCAlts :: [S.Alternative Type] -> [C.CAlt]
 getCAlts alts =
   let cs = gatherConstructors [] alts
       insts = map (gatherInstances [] alts) cs
-   in map processConstructor insts
-   -- instst :: [[S.Alternative Type]]
+   in translate [] (map processConstructor insts)
  where
    -- gatherConstructors produces an in-order list of unique constructors
    -- encountered in the pattern list.
+   gatherConstructors :: [ByteString] -> [S.Alternative Type] -> [ByteString]
    gatherConstructors acc [] = nub $ reverse acc
    gatherConstructors acc (S.Alternative _ p _ : as) = case p of
      -- This is a default constructor which hides all following patterns
-     S.PVar _ _ -> nub $ reverse acc
+     S.PVar{} -> nub $ reverse acc
      S.PConstr _ name _ -> gatherConstructors (name : acc) as
-     S.PConst _ _ ->
+     S.PConst{} ->
        error "Internal error: literal pattern in constructor case expression"
-   -- gatherInstances takes a constructor name and finds all non-shadows
+   -- gatherInstances takes a constructor name and finds all non-shadowed
    -- instances of that constructor.
+   gatherInstances :: [S.Alternative Type] -> ByteString -> [S.Alternative Type]
    gatherInstances acc [] _ = reverse acc
    gatherInstances acc (a@(S.Alternative _ p _) : as) name = case p of
-     S.PVar _ _ -> reverse acc
+     S.PVar{} -> reverse acc
      S.PConstr _ n _ ->
        gatherInstances (if name == n then a : acc else acc) as name
-     S.PConst _ _ ->
+     S.PConst{} ->
        error "Internal error: literal pattern in constructor case expression"
    -- Once processConstructor is called, all elements of alts will have the
-   -- same constructor. Then processConstructor will look for any patterns
-   -- which are not only a single PVar, and if any exist it will generate a
-   -- new case expression recursively.
-   processConstructor [] =
-     error "Internal error: empty alternatives in processConstructor"
-   processConstructor (a@(S.Alternative _ (S.PConstr _ name pats) e) : _) =
-     if notPVar a
-        then undefined
-        -- recursive case: create a CAlt with new variables and then generate
-        -- nested cases to examine each non-var pattern
-        else C.CAlt name (map getVar pats) (desugarExpr e)
+   -- same constructor. Then processConstructor will replace a set of
+   -- alternatives with a single alternative for that constructor with an
+   -- inner case expression analyzing constructor arguments
+   -- Operationally:
+   -- 1) Generate new variable names (p1, ..., pn) for each constructor (C)
+   --    argument, and build the pattern "C p1 ... pn"
+   -- 2) Build up the internal case expression:
+   --    a) Generate "case p1 of P1 -> e1; P2 -> e2; ... where Pi are the
+   --       patterns appearing in the p1 position and each e2 is generated
+   --       recursively.
+   processConstructor :: [S.Alternative Type] -> S.Alternative Type
+   processConstructor as@(S.Alternative at (S.PConstr ty n ps) _ : _) =
+     let pats = zipWith (\p n -> S.PVar (S.patternInfo p)
+                                        (pack $ "p$" ++ show n))
+                        ps [1 .. length ps]
+      in S.Alternative at (S.PConstr ty n pats) $ buildExpr pats as
    processConstructor _ =
-     error "Internal error: non-constructor pattern in processConstructors"
-   -- notPVar determins whether any pattern inside a constructor pattern is not
-   -- just a variable.
-   notPVar (S.Alternative _ (S.PConstr _ _ pats) _) =
-     any (\case { S.PVar{} -> False; _ -> True }) pats
-   notPVar _ = error "Internal error: constructor pattern was expected"
-   -- Convert a variable pattern from the source language to a variable
-   -- in the core language.
-   getVar (S.PVar t v) = C.Var v t
-   getVar _ = error "Internal error: trying to get var from non-var pattern"
+     error "Internal error: Unexpected pattern in processConstructor"
+   buildExpr :: [S.Pattern Type] -> Int -> [S.Alternative Type] -> S.Expr Type
+   buildExpr [] _ (S.Alternative _ _ e : _) = e
+   buildExpr [] _ _ = error "Internal error: no alternatives in buildExpr"
+   buildExpr (p : ps) i as =
+     let pats = getOptions i as
+         subexprs = map (buildExpr ps (i + 1) . undefined) as
+      in S.ECase undefined undefined undefined
+   -- Get a list of patterns appearing in the i'th argument to a constructor
+   getOptions :: Int -> [S.Alternative Type] -> [S.Pattern Type]
+   getOptions i = nubBy S.alphaEquiv . map (getOption i)
+   getOption i (S.Alternative _ (S.PConstr _ _ ps)) = ps ! i
+   getOption _ _ = error "Internal error: Unexpected pattern in getOption"
+   -- At this point, all alternatives have only a single constructor then
+   -- variable patterns.
+   translate :: [C.CAlt] -> [S.Alternative Type] -> [C.CAlt]
+   translate acc [] = reverse acc
+   translate acc (S.Alternative _ (S.PConstr _ n ps) e : as) =
+     translate (C.CAlt n (map getVar ps) (desugarExpr e) : acc) as
+   translate _ _ = error "Internal error: Unexpected pattern in translate"
+   -- Get a variable from a variable pattern
+   getVar :: S.Pattern Type -> C.Var
+   getVar (S.PVar t n) = C.Var n t
+
+
+{-
+e : C a1 b1 -> e1
+    C a1 b2 -> e2
+    C a2 b1 -> e3
+    C a2 b2 -> e4
+
+e : C p1 p2 -> { p1 : a1 -> { p2 : b1 -> e1
+                                   b2 -> e2 }
+                      a2 -> { p2 : b1 -> e3
+                                   b2 -> e4 } }
+
+e : C p1 b1 -> e1
+    C p1 b2 -> e2
+    C p1 b1 -> e3
+    C p1 b2 -> e4
+-}
 
 {-
 For illustration, here is a stack trace of a call to pruneBigLambda starting
@@ -365,7 +404,14 @@ pruneBigLambdas bound expr = case expr of
 addTyApps :: C.Expr -> C.Expr
 addTyApps expr = case expr of
   C.EApp ty e1 e2 -> case e1 of
-    C.EBigLam (TForall n t) tv b -> undefined
+    C.EBigLam bt@(TForall n t) _ b ->
+      -- Insert a TyApp before the App, i.e.,
+      -- (/\ tv. e1) e2 -> ((/\ tv. e1) (typeof e2)) e2
+      C.EApp ty
+             (C.ETyApp (subst n (typeof e2) t)
+                       (C.EBigLam bt n (addTyApps b))
+                       a)
+             (addTyApps e2)
     C.EBigLam{} -> error "Internal error: ill-typed big lambda"
     e -> C.EApp ty (addTyApps e1) (addTyApps e2)
   C.ETyApp ty e t -> C.ETyApp ty (addTyApps e) t
@@ -382,4 +428,11 @@ addTyApps expr = case expr of
    addAppsBind (C.BNonRec v e) = C.BNonRec v (addTyApps e)
    addAppsBind (C.BRec bs) = C.BRec $ map (second addTyApps) bs
    addAppDef C.NoDefault = C.NoDefault
-   addAppDef C.Default var e = C.Default var (addTyApps e)
+   addAppDef (C.Default var e) = C.Default var (addTyApps e)
+   -- Substitute a type for a type variable
+   subst v t (TVar n) = if v == n then t else TVar n
+   subst v t (TArrow t1 t2) = TArrow (subst v t t1) (subst v t t2)
+   subst v t (TForall n t') =
+     if n == v then TForall n t' else TForall n (subst v t t')
+   subst v t (TConstr n t') = TCosntr n (subst v t t')
+   subst _ _ t' = t'

@@ -42,6 +42,7 @@ module Source
   , Pattern (..)
   , patternInfo
   , occurs
+  , groupAndSort
   ) where
 
 import Data.ByteString.Lazy.Char8 (ByteString)
@@ -177,7 +178,7 @@ data Alternative a
 -- | A `Foldable` instance for alternatives.
 --
 -- See the module description of "Source#foldable" for a discussion of the
--- `Foldable` instance..
+-- `Foldable` instance.
 instance Foldable Alternative where
   foldMap f (Alternative i pat expr) = f i <> foldMap f pat <> foldMap f expr
 
@@ -206,6 +207,16 @@ patternInfo :: Pattern a -> a
 patternInfo (PConstr i _ _) = i
 patternInfo (PVar i _) = i
 patternInfo (PConst i _) = i
+
+-- | Determine whether there exists a susbstitution of variables which makes
+-- two patterns equal.
+alphaEquiv :: Pattern a -> Pattern a -> Bool
+alphaEquiv a b =
+  case (a, b) of
+    (PConstr _ n ps1, PConstr _ m ps2) ->
+      n == m && all2 alphaEquiv ps1 ps2
+    (PVar{}, PVar{}) -> True
+    (PConst _ n, PConst _ m) -> n == m
 
 -- | Determine whether a name occurs in an expression.
 --
@@ -243,3 +254,22 @@ occursPattern name pat = case pat of
   PConstr _ _ pats -> any (occursPattern name) pats
   PVar _ n -> n == name
   PConst _ _ -> False
+
+-- | Group bindings into mutually recursive sets then sort those sets by usage.
+--
+-- Each binding may refer to other bindings. In order to infer general types,
+-- we must typecheck bindings before they are used. However, in the case of
+-- mutually recursive bindings this is impossible. This function finds minimal
+-- sets of mutually recurisve bindings which must be typechecked together,
+-- then sorts these sets so that definitions are typed before they are used.
+-- In graph terms, this is just the strongly connected components of the
+-- dependency graph, sorted reverse topologically.
+groupAndSort :: [Binding a] -> [[Binding a]]
+groupAndSort binds =
+  map Graph.flattenSCC $ Graph.stronglyConnComp dependencyGraph
+ where
+   dependencyGraph = map getEdges binds
+   getEdges b@(Binding _ name args expr) =
+     (b, name, filter (\n -> notElem n args && occurs n expr) bindingNames)
+   bindingNames = map bindingName binds
+
