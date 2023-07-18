@@ -43,9 +43,14 @@ module Source
   , patternInfo
   , occurs
   , groupAndSort
+  , alphaEquiv
+  , alphaSub
   ) where
 
 import Data.ByteString.Lazy.Char8 (ByteString)
+import qualified Data.Graph as Graph
+import Data.Maybe (isJust)
+import Control.Monad (zipWithM)
 
 -- | A binding associates a name and list of arguments with a function body.
 --
@@ -210,13 +215,21 @@ patternInfo (PConst i _) = i
 
 -- | Determine whether there exists a susbstitution of variables which makes
 -- two patterns equal.
-alphaEquiv :: Pattern a -> Pattern a -> Bool
-alphaEquiv a b =
+alphaEquiv :: Eq a => Pattern a -> Pattern a -> Bool
+alphaEquiv a b = isJust $ alphaSub a b
+
+-- | Find a substitution which converts the first pattern to the second
+-- pattern, if such a substitution exists.
+alphaSub :: Eq a => Pattern a -> Pattern a -> Maybe [(ByteString, ByteString)]
+alphaSub a b =
   case (a, b) of
+    (PVar _ n, PVar _ m) -> Just [(n, m)]
     (PConstr _ n ps1, PConstr _ m ps2) ->
-      n == m && all2 alphaEquiv ps1 ps2
-    (PVar{}, PVar{}) -> True
-    (PConst _ n, PConst _ m) -> n == m
+      if n == m
+         then concat <$> zipWithM alphaSub ps1 ps2
+         else Nothing
+    (PConst _ c1, PConst _ c2) -> if c1 == c2 then Just [] else Nothing
+    _ -> Nothing
 
 -- | Determine whether a name occurs in an expression.
 --
@@ -272,4 +285,3 @@ groupAndSort binds =
    getEdges b@(Binding _ name args expr) =
      (b, name, filter (\n -> notElem n args && occurs n expr) bindingNames)
    bindingNames = map bindingName binds
-

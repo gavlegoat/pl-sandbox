@@ -67,8 +67,8 @@ module Desugar
 
 import Control.Arrow (second)
 import Data.ByteString.Lazy.Char8 (ByteString, pack)
-import Data.Maybe (mapMaybe)
-import Data.List (nub, findIndex)
+import Data.Maybe (mapMaybe, fromMaybe)
+import Data.List (nub, nubBy)
 import qualified Data.Set as Set
 import Data.Set (Set)
 
@@ -81,7 +81,7 @@ import Type
 -- NOTE: All core bindings are currently recursive.
 desugar :: [S.Binding Type] -> [C.Binding]
 desugar binds = --[C.BRec $ map desugarBinding binds]
-  let bss = groupAndSort binds
+  let bss = S.groupAndSort binds
       desugared = map (map desugarBinding) bss
    in map C.BRec desugared
 
@@ -101,7 +101,7 @@ desugarBinding (S.Binding ty name args expr) =
      S.ELambda t a (expandLambda t2 as e)
    -- Free variables are all quantified in top level bindings, and we re-add
    -- big lambdas later, so we can just forget quantification here
-   expandLambda (TForall n t) as e = expandLambda t as e
+   expandLambda (TForall _ t) as e = expandLambda t as e
    expandLambda _ _ _ = error "Internal error: ill-typed function in expand"
 
 -- | Desugar an expression.
@@ -273,7 +273,8 @@ getCAlts alts =
        error "Internal error: literal pattern in constructor case expression"
    -- gatherInstances takes a constructor name and finds all non-shadowed
    -- instances of that constructor.
-   gatherInstances :: [S.Alternative Type] -> ByteString -> [S.Alternative Type]
+   gatherInstances :: [S.Alternative Type] -> [S.Alternative Type] -> ByteString
+                   -> [S.Alternative Type]
    gatherInstances acc [] _ = reverse acc
    gatherInstances acc (a@(S.Alternative _ p _) : as) name = case p of
      S.PVar{} -> reverse acc
@@ -294,10 +295,10 @@ getCAlts alts =
    --       recursively.
    processConstructor :: [S.Alternative Type] -> S.Alternative Type
    processConstructor as@(S.Alternative at (S.PConstr ty n ps) _ : _) =
-     let pats = zipWith (\p n -> S.PVar (S.patternInfo p)
-                                        (pack $ "p$" ++ show n))
+     let pats = zipWith (\p i -> S.PVar (S.patternInfo p)
+                                        (pack $ "p$" ++ show i))
                         ps [1 .. length ps]
-      in S.Alternative at (S.PConstr ty n pats) $ buildExpr pats as
+      in S.Alternative at (S.PConstr ty n pats) $ buildExpr pats 0 as
    processConstructor _ =
      error "Internal error: Unexpected pattern in processConstructor"
    buildExpr :: [S.Pattern Type] -> Int -> [S.Alternative Type] -> S.Expr Type
@@ -305,12 +306,48 @@ getCAlts alts =
    buildExpr [] _ _ = error "Internal error: no alternatives in buildExpr"
    buildExpr (p : ps) i as =
      let pats = getOptions i as
-         subexprs = map (buildExpr ps (i + 1) . undefined) as
-      in S.ECase undefined undefined undefined
+         subexprs = map (buildExpr ps (i + 1) . filterAlts as i) pats
+         ty = S.exprInfo (head subexprs)
+      in S.ECase ty
+                 (getVarExpr p)
+                 (zipWith (S.Alternative ty) pats subexprs)
+   -- Get the subset of alts for which the i'th argument to a constructor
+   -- matches the given pattern
+   filterAlts :: [S.Alternative Type] -> Int -> S.Pattern Type
+              -> [S.Alternative Type]
+   filterAlts as i p = mapMaybe (checkAndModifyAlt i p) as
+   checkAndModifyAlt :: Int -> S.Pattern Type -> S.Alternative Type
+                     -> Maybe (S.Alternative Type)
+   checkAndModifyAlt i p a = applySub a <$> S.alphaSub (getOption i a) p
+   applySub :: S.Alternative Type -> [(ByteString, ByteString)]
+            -> S.Alternative Type
+   applySub (S.Alternative t p e) s =
+     S.Alternative t (subPattern s p) (subExpr s e)
+   subPattern :: [(ByteString, ByteString)] -> S.Pattern Type -> S.Pattern Type
+   subPattern s (S.PVar t n) = S.PVar t (fromMaybe n $ lookup n s)
+   subPattern s (S.PConstr t n ps) = S.PConstr t n $ map (subPattern s) ps
+   subPattern _ p@S.PConst{} = p
+   subExpr :: [(ByteString, ByteString)] -> S.Expr Type -> S.Expr Type
+   subExpr s (S.EVar t n) = S.EVar t (fromMaybe n $ lookup n s)
+   subExpr _ e@S.EConst{} = e
+   subExpr _ e@S.EConstr{} = e
+   subExpr s (S.EApp t e1 e2) = S.EApp t (subExpr s e1) (subExpr s e2)
+   subExpr s (S.EBinop t l o r) = S.EBinop t (subExpr s l) o (subExpr s r)
+   subExpr s (S.EUnop t o a) = S.EUnop t o (subExpr s a)
+   subExpr s (S.EIf t ce te fe) =
+     S.EIf t (subExpr s ce) (subExpr s te) (subExpr s fe)
+   subExpr s (S.ECase t e as) =
+     S.ECase t (subExpr s e) (map (flip applySub s) as)
+   subExpr s (S.ELambda t n e) = S.ELambda t n (subExpr (remove n s) e)
+   subExpr s (S.ELet t n v b) =
+     let s' = remove n s in S.ELet t n (subExpr s' v) (subExpr s' b)
+   remove :: ByteString -> [(ByteString, ByteString)]
+          -> [(ByteString, ByteString)]
+   remove n = filter (\(m, _) -> m == n)
    -- Get a list of patterns appearing in the i'th argument to a constructor
    getOptions :: Int -> [S.Alternative Type] -> [S.Pattern Type]
    getOptions i = nubBy S.alphaEquiv . map (getOption i)
-   getOption i (S.Alternative _ (S.PConstr _ _ ps)) = ps ! i
+   getOption i (S.Alternative _ (S.PConstr _ _ ps) _) = ps !! i
    getOption _ _ = error "Internal error: Unexpected pattern in getOption"
    -- At this point, all alternatives have only a single constructor then
    -- variable patterns.
@@ -322,6 +359,10 @@ getCAlts alts =
    -- Get a variable from a variable pattern
    getVar :: S.Pattern Type -> C.Var
    getVar (S.PVar t n) = C.Var n t
+   getVar _ = error "Internal error: Unexpected pattern in getVar"
+   getVarExpr :: S.Pattern Type -> S.Expr Type
+   getVarExpr (S.PVar t n) = S.EVar t n
+   getVarExpr _ = error "Internal error: Unexpected pattern in getVarExpr"
 
 
 {-
@@ -384,7 +425,8 @@ pruneBigLambdas bound expr = case expr of
   C.ELambda ty v e -> C.ELambda ty v (pruneBigLambdas bound e)
   C.ECase ty e alts -> C.ECase ty (pruneBigLambdas bound e) (pruneAlts alts)
   C.ELet ty bind e -> C.ELet ty (pruneBinding bind) (pruneBigLambdas bound e)
-  e -> e
+  e@C.EConstr{} -> e
+  e@C.EAtom{} -> e
  where
    pruneAlts (C.CAlts as d) = C.CAlts (map pruneCAlt as) (pruneDefault d)
    pruneAlts (C.LAlts as d) = C.LAlts (map pruneLAlt as) (pruneDefault d)
@@ -408,18 +450,19 @@ addTyApps expr = case expr of
       -- Insert a TyApp before the App, i.e.,
       -- (/\ tv. e1) e2 -> ((/\ tv. e1) (typeof e2)) e2
       C.EApp ty
-             (C.ETyApp (subst n (typeof e2) t)
+             (C.ETyApp (subst n (C.typeof e2) t)
                        (C.EBigLam bt n (addTyApps b))
-                       a)
+                       (C.typeof e2))
              (addTyApps e2)
     C.EBigLam{} -> error "Internal error: ill-typed big lambda"
-    e -> C.EApp ty (addTyApps e1) (addTyApps e2)
+    _ -> C.EApp ty (addTyApps e1) (addTyApps e2)
   C.ETyApp ty e t -> C.ETyApp ty (addTyApps e) t
   C.ELambda ty v e -> C.ELambda ty v (addTyApps e)
   C.EBigLam ty v e -> C.EBigLam ty v (addTyApps e)
   C.ECase ty e as -> C.ECase ty (addTyApps e) (addAppsAlts as)
   C.ELet ty b e -> C.ELet ty (addAppsBind b) (addTyApps e)
-  e -> e
+  e@C.EConstr{} -> e
+  e@C.EAtom{} -> e
  where
    addAppsAlts (C.CAlts as d) = C.CAlts (map addAppCAlt as) (addAppDef d)
    addAppsAlts (C.LAlts as d) = C.LAlts (map addAppLAlt as) (addAppDef d)
@@ -434,5 +477,5 @@ addTyApps expr = case expr of
    subst v t (TArrow t1 t2) = TArrow (subst v t t1) (subst v t t2)
    subst v t (TForall n t') =
      if n == v then TForall n t' else TForall n (subst v t t')
-   subst v t (TConstr n t') = TCosntr n (subst v t t')
+   subst v t (TConstr n t') = TConstr n (subst v t t')
    subst _ _ t' = t'

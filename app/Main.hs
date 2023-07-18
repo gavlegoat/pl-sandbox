@@ -14,7 +14,7 @@ main = do
   code <- BS.readFile (head args)
   case runAlex code parseMain of
     Left err -> putStrLn err
-    Right prog -> case runChecks of
+    Right prog -> case runChecks prog of
       [] -> case inferTop prog of
         Left errs -> print "Type Errors" >> mapM_ print errs
         Right typed -> print typed

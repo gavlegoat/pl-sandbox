@@ -17,7 +17,6 @@ module Typecheck
 import Control.Monad.State
 import qualified Data.Map.Strict as M
 import Data.Map.Strict (Map)
-import qualified Data.Graph as Graph
 import Data.Maybe (fromJust, fromMaybe)
 import Data.ByteString.Lazy.Char8 (ByteString)
 import qualified Data.Set as Set
