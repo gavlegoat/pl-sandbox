@@ -6,7 +6,7 @@ Module      : Desugar
 Description : Translate the PL sandbox source language to the core language.
 Copyright   : (c) Greg Anderson, 2023
 License     : BSD3
-Maintainer  : ganderso@cs.utexas.edu
+Maintainer  : grega@reed.edu
 
 This module converts a typed program in the source language into a program in
 the core language. This does a number of relatively straightforward things,
@@ -61,7 +61,7 @@ is replaced by
 -- Special identifiers introduced by the desugarer:
 --   p$0, p$1, ...: pattern matching variables
 
-module Desugar
+module Frontend.Desugar
   ( desugar
   ) where
 
@@ -72,15 +72,17 @@ import Data.List (nub, nubBy)
 import qualified Data.Set as Set
 import Data.Set (Set)
 
-import qualified Source as S
+import qualified Frontend.Source as S
 import qualified Core as C
 import Type
 
+-- | Convert a typed source program to a core program.
 desugar :: S.Program Type -> C.Program
 desugar prog =
   C.Program { C.pTypes = desugarTypeDefs (S.pTypes prog)
             , C.pValues = desugarBindings (S.pValues prog) }
 
+-- | Convert type definitions from source to core.
 desugarTypeDefs :: [S.TypeDef Type] -> [C.TypeDef]
 desugarTypeDefs = map desType where
   desType (S.TypeDef _ n cs) = C.TypeDef n (map desConstr cs)
@@ -160,6 +162,7 @@ desugarExpr expr = case expr of
                       else C.BNonRec v d)
                   (desugarExpr body)
 
+-- | Add explicit type abstractions to an expression.
 addBigLambdas :: Type -> C.Expr -> C.Expr
 addBigLambdas (TVar n) e = C.EBigLam (TForall n $ C.typeof e) n e
 addBigLambdas (TArrow t1 t2) e = addBigLambdas t1 $ addBigLambdas t2 e

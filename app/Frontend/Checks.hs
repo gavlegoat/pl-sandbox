@@ -7,15 +7,16 @@ Copyright   : (c) Greg Anderson, 2023
 License     : BSD3
 Maintainer  : grega@reed.edu
 -}
-module Checks
+module Frontend.Checks
   ( runChecks
   ) where
 
 import Data.ByteString.Lazy.Char8 (ByteString)
 import qualified Data.ByteString.Lazy.Char8 as BS
 
-import Source
+import Frontend.Source
 
+-- | Run all semantic checks for a particular program.
 runChecks :: Program a -> [ByteString]
 runChecks prog = concatMap ($ prog) [patternRepeats]
 

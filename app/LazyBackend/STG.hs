@@ -3,12 +3,12 @@ Module      : STG
 Description : STG language definitions
 Copyright   : (c) Greg Anderson, 2023
 License     : BSD3
-Maintainer  : ganderso@cs.utexas.edu
+Maintainer  : grega@reed.edu
 
 This module contains definitions for the language used by the spinless, tagless
 G-machine.
 -}
-module STG
+module LazyBackend.STG
   where
 
 import Data.ByteString.Lazy.Char8 (ByteString)

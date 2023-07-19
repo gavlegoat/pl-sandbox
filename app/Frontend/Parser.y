@@ -1,6 +1,6 @@
 {
 
-module Parser
+module Frontend.Parser
   ( parseMain
   , Info(..)
   ) where
@@ -8,8 +8,8 @@ module Parser
 import Data.ByteString.Lazy.Char8 (ByteString)
 import Data.List (intercalate)
 
-import qualified Lexer as Lex
-import Source
+import qualified Frontend.Lexer as Lex
+import Frontend.Source
 import Type
 
 }

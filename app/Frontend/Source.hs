@@ -5,7 +5,7 @@ Module      : Source
 Description : Abstract syntax trees
 Copyright   : (c) Greg Anderson, 2023
 License     : BSD3
-Maintainer  : ganderso@cs.utexas.edu
+Maintainer  : grega@reed.edu
 
 This module contains basic type definition for abstract syntax tress in the
 PL sandbox language.
@@ -29,7 +29,7 @@ point. In this case, we have the operation use the @a@ field in each
 constructor to mark modified nodes, and then we know we can stop as soon as
 @or tree@ becomes false where @tree@ is the modified-and-marked tree.
 -}
-module Source
+module Frontend.Source
   ( Program (..)
   , Binding (..)
   , bindingName
@@ -57,6 +57,8 @@ import Control.Monad (zipWithM)
 
 import Type
 
+-- | A program consists of a set of type definitions and a set of value
+-- bindings.
 data Program a = Program { pValues :: [Binding a], pTypes :: [TypeDef a] }
   deriving (Show, Eq)
 
@@ -74,7 +76,7 @@ data Binding a
 -- | A `Foldable` instance for bindings.
 --
 -- See the module description of "Source#foldable" for a discussion of the
--- `Foldable` instance..
+-- `Foldable` instance.
 instance Foldable Binding where
   foldMap f (Binding i _ _ e) = f i <> foldMap f e
 
@@ -86,9 +88,14 @@ bindingName (Binding _ name _ _) = name
 bindingInfo :: Binding a -> a
 bindingInfo (Binding i _ _ _) = i
 
+-- | A type is defined by a set of constructors.
 data TypeDef a = TypeDef a ByteString [Constructor a]
   deriving (Show, Eq)
 
+-- | A `Foldable` instance for type definitions.
+--
+-- See the module description of "Source#foldable" for a discussion of the
+-- `Foldable` instance.
 instance Foldable TypeDef where
   foldMap f (TypeDef i _ cs) = f i <> foldMap (foldMap f) cs
 
@@ -96,6 +103,10 @@ instance Foldable TypeDef where
 data Constructor a = Constructor a ByteString [Type]
   deriving (Show, Eq)
 
+-- | A `Foldable` instance for constructors.
+--
+-- See the module description of "Source#foldable" for a discussion of the
+-- `Foldable` instance.
 instance Foldable Constructor where
   foldMap f (Constructor i _ _) = f i
 

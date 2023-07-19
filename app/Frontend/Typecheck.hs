@@ -10,8 +10,9 @@ Maintainer  : grega@reed.edu
 This module infers types for all expressions in a PL sandbox language program
 and annotates each AST node with its type.
 -}
-module Typecheck
+module Frontend.Typecheck
   ( inferTop
+  , Constraint
   ) where
 
 import Control.Monad.State
@@ -21,7 +22,7 @@ import Data.Maybe (fromJust, fromMaybe)
 import Data.ByteString.Lazy.Char8 (ByteString)
 import qualified Data.Set as Set
 
-import Source
+import Frontend.Source
 import Type
 
 -- | Type constraint.
@@ -80,6 +81,7 @@ inferTop prog =
      TypeDef (TUser n) n $ map (constructor n) cs
    constructor n (Constructor _ m ts) = Constructor (TUser n) m ts
 
+-- | Add all constructors from a user-defined type to the typing context.
 addType :: Map ByteString Type -> TypeDef a -> Map ByteString Type
 addType ctx (TypeDef _ n cs) =
   foldl (\c (Constructor _ v ts) ->

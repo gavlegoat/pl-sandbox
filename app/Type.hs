@@ -3,7 +3,7 @@ Module      : Type
 Description : Types in the PL sandbox language
 Copyright   : (c) Greg Anderson, 2023
 License     : BSD3
-Maintainer  : ganderso@cs.utexas.edu
+Maintainer  : grega@reed.edu
 
 This module defines the types which can be used in PL sandbox languages.
 -}

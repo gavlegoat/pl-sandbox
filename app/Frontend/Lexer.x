@@ -1,5 +1,5 @@
 {
-module Lexer
+module Frontend.Lexer
   ( Alex
   , AlexPosn (..)
   , Token (..)

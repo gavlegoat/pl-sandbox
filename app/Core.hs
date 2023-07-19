@@ -3,7 +3,7 @@ Module      : Core
 Description : The core intermediate representation for PL sandbox.
 Copyright   : (c) Greg Anderson, 2023
 License     : BSD3
-Maintainer  : ganderso@cs.utexas.edu
+Maintainer  : grega@reed.edu
 
 This module contains type definitions for the small core language used by
 the PL sandbox language. This language is taken directly from GHC, though
@@ -31,12 +31,14 @@ import Data.ByteString.Lazy.Char8 (ByteString)
 
 import Type
 
+-- | A Program contains a set of type definitions and a set of value bindings.
 data Program = Program { pTypes :: [TypeDef], pValues :: [Binding] }
 
 instance Show Program where
   show (Program {pTypes = ts, pValues = vs}) =
     unlines (map show ts) ++ "\n" ++ unlines (map show vs)
 
+-- | A type definition is a set of constructors.
 data TypeDef = TypeDef ByteString [Constructor]
   deriving (Eq)
 
@@ -44,6 +46,7 @@ instance Show TypeDef where
   show (TypeDef n cs) = "data " ++ show n ++ " =\n" ++
     unlines (map (("  | " ++) . show) cs)
 
+-- | A constructor builds a user-defined type from a set of other types.
 data Constructor = Constructor ByteString [Type]
   deriving (Eq)
 
