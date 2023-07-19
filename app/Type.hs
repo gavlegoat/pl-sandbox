@@ -25,6 +25,7 @@ data Type = TInt                    -- ^ Integer type
           | TArrow Type Type        -- ^ Function type
           | TForall Int Type        -- ^ Polymorphism
           | TConstr ByteString Type -- ^ Type constructor
+          | TUser ByteString        -- ^ A user-defined type
           deriving (Eq)
 
 instance Show Type where
@@ -35,6 +36,7 @@ instance Show Type where
   show (TArrow t1 t2) = "(" ++ show t1 ++ ") -> (" ++ show t2 ++ ")"
   show (TForall i t) = "forall t" ++ show i ++ ". (" ++ show t ++ ")"
   show (TConstr name t) = "(" ++ show t ++ ") " ++ show name
+  show (TUser n) = show n
 
 -- | Determine whether a particular type is a literal.
 --

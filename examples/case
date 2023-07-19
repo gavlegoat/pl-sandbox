@@ -1,0 +1,16 @@
+testFun x y = case x of
+  1 -> "one" ;
+  2 -> "two" ;
+  x -> y ; ;;
+
+data Custom = A Int | B Int String | C ;;
+
+data LevelTwo = D Custom | E Custom ;;
+
+testFun2 x = case x of
+  D (A n) -> "one" ;
+  D (B n s) -> "two" ;
+  D C -> "three" ;
+  E (A n) -> "four" ;
+  E (B n s) -> "five" ;
+  E C -> "six" ; ;;

@@ -16,13 +16,14 @@ import qualified Data.ByteString.Lazy.Char8 as BS
 
 import Source
 
-runChecks :: [Binding a] -> [ByteString]
+runChecks :: Program a -> [ByteString]
 runChecks prog = concatMap ($ prog) [patternRepeats]
 
 -- | Check for repeated variables in pattern matches.
-patternRepeats :: [Binding a] -> [ByteString]
-patternRepeats [] = []
-patternRepeats (Binding _ _ _ ex : bs) = expr ex ++ patternRepeats bs where
+patternRepeats :: Program a -> [ByteString]
+patternRepeats = patternRepeats' . pValues where
+  patternRepeats' [] = []
+  patternRepeats' (Binding _ _ _ ex : bs) = expr ex ++ patternRepeats' bs
   expr (EApp _ e1 e2) = expr e1 ++ expr e2
   expr (EBinop _ e1 _ e2) = expr e1 ++ expr e2
   expr (EUnop _ _ e) = expr e

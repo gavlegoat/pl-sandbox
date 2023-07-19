@@ -49,13 +49,17 @@ tokens :-
 <0> @integer { tokInt }
 
 -- Keywords
-<0> let   { tok Let }
-<0> in    { tok In }
-<0> if    { tok If }
-<0> then  { tok Then }
-<0> else  { tok Else }
-<0> case  { tok Case }
-<0> of    { tok Of }
+<0> let    { tok Let }
+<0> in     { tok In }
+<0> if     { tok If }
+<0> then   { tok Then }
+<0> else   { tok Else }
+<0> case   { tok Case }
+<0> of     { tok Of }
+<0> data   { tok Data }
+<0> Int    { tok TInt }
+<0> String { tok TString }
+<0> Bool   { tok TBool }
 
 -- Parens
 <0> "(" { tok LParen }
@@ -84,6 +88,7 @@ tokens :-
 <0> "->" { tok Arrow }
 <0> "="  { tok Defn }
 <0> ";"  { tok Semi }
+<0> "|"  { tok Pipe }
 
 <0> @id     { tokId }
 <0> @constr { tokConstr }
@@ -99,6 +104,10 @@ data Token
   | Else
   | Case
   | Of
+  | Data
+  | TInt
+  | TString
+  | TBool
   -- Parens
   | LParen
   | RParen
@@ -130,6 +139,7 @@ data Token
   | Arrow
   | Defn
   | Semi
+  | Pipe
   | EOF
 
 data AlexUserState = AlexUserState

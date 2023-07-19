@@ -30,9 +30,12 @@ constructor to mark modified nodes, and then we know we can stop as soon as
 @or tree@ becomes false where @tree@ is the modified-and-marked tree.
 -}
 module Source
-  ( Binding (..)
+  ( Program (..)
+  , Binding (..)
   , bindingName
   , bindingInfo
+  , TypeDef (..)
+  , Constructor (..)
   , Constant (..)
   , Binop (..)
   , Unop (..)
@@ -52,6 +55,11 @@ import qualified Data.Graph as Graph
 import Data.Maybe (isJust)
 import Control.Monad (zipWithM)
 
+import Type
+
+data Program a = Program { pValues :: [Binding a], pTypes :: [TypeDef a] }
+  deriving (Show, Eq)
+
 -- | A binding associates a name and list of arguments with a function body.
 --
 -- Note that the list of arguments may be empty in case any top-level bindings
@@ -59,7 +67,8 @@ import Control.Monad (zipWithM)
 --
 -- See the module description of "Source#info" for a discussion of the extra
 -- type parameter.
-data Binding a = Binding a ByteString [ByteString] (Expr a)
+data Binding a
+  = Binding a ByteString [ByteString] (Expr a)
   deriving (Show, Eq, Functor)
 
 -- | A `Foldable` instance for bindings.
@@ -76,6 +85,19 @@ bindingName (Binding _ name _ _) = name
 -- | Get the info associated with a binding.
 bindingInfo :: Binding a -> a
 bindingInfo (Binding i _ _ _) = i
+
+data TypeDef a = TypeDef a ByteString [Constructor a]
+  deriving (Show, Eq)
+
+instance Foldable TypeDef where
+  foldMap f (TypeDef i _ cs) = f i <> foldMap (foldMap f) cs
+
+-- | A constructor is one option for building a data type.
+data Constructor a = Constructor a ByteString [Type]
+  deriving (Show, Eq)
+
+instance Foldable Constructor where
+  foldMap f (Constructor i _ _) = f i
 
 -- | Constants in the source language.
 --

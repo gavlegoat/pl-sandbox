@@ -50,10 +50,14 @@ builtinTypes = M.fromList [("True", TBool), ("False", TBool)]
 -- 3) After each block, generalize types.
 
 -- | Infer types for a whole program.
-inferTop :: [Binding a] -> Either [Constraint] [Binding Type]
-inferTop bs =
-  let bss = groupAndSort bs
-   in snd $ foldl inferBlock (builtinTypes, Right []) bss
+inferTop :: Program a -> Either [Constraint] (Program Type)
+inferTop prog =
+  let ctx = foldl addType builtinTypes (pTypes prog)
+      bss = groupAndSort (pValues prog)
+   in case snd $ foldl inferBlock (ctx, Right []) bss of
+        Left errs -> Left errs
+        Right bs -> Right $ Program { pTypes = map processTypeDef (pTypes prog)
+                                    , pValues = bs }
  where
    -- infer types for a block of mutually recursive definitions. This function
    -- also updates the typing context with all of the new types.
@@ -72,6 +76,14 @@ inferTop bs =
    -- Add quantifiers for every remaining type variable.
    generalize (Binding ty n as e) =
      Binding (Set.foldr TForall ty $ tvars ty) n as e
+   processTypeDef (TypeDef _ n cs) =
+     TypeDef (TUser n) n $ map (constructor n) cs
+   constructor n (Constructor _ m ts) = Constructor (TUser n) m ts
+
+addType :: Map ByteString Type -> TypeDef a -> Map ByteString Type
+addType ctx (TypeDef _ n cs) =
+  foldl (\c (Constructor _ v ts) ->
+            M.insert v (foldr TArrow (TUser n) ts) c) ctx cs
 
 -- | Infer types for a set of mutually recursive bindings.
 --
@@ -192,7 +204,10 @@ annotatePattern types pat = case pat of
             Nothing -> freshVar
             Just tm -> inst tm
     unifyArgs ct $ map patternInfo pts
-    return (PConstr ct name pts, foldr M.union M.empty mps)
+    return (PConstr (resType ct pts) name pts, foldr M.union M.empty mps) where
+      resType t [] = t
+      resType (TArrow _ t2) (_ : ps) = resType t2 ps
+      resType _ _ = error "Internal error: unexpected pattern in resType"
   PVar _ name -> freshVar >>= \ft -> return (PVar ft name, M.singleton name ft)
   PConst _ (CInt _ i) -> return (PConst TInt (CInt TInt i), M.empty)
   PConst _ (CString _ s) ->
@@ -235,7 +250,9 @@ unifyAll [] = return ()
 -- | Assert that a function should have a type consistent with its arguments.
 unifyArgs :: Type -> [Type] -> State Context ()
 unifyArgs _    [] = return ()
-unifyArgs func as = unify func $ foldr1 TArrow as
+unifyArgs func as = do
+  ft <- freshVar
+  unify func $ foldr TArrow ft as
 
 -- | Get the type of the left argument of a binary operator.
 leftType :: Binop a -> Type
@@ -333,6 +350,13 @@ resolveConstraints = resolveConstraints' M.empty [] where
            else resolveConstraints' types ((t1, t2) : errs) cs
       _ -> resolveConstraints' types ((t1, t2) : errs) cs
     TForall _ _ -> error "Internal error: unifying quantified type"
+    TUser n -> case t2 of
+      TUser m ->
+        if n == m
+           then resolveConstraints' types errs cs
+           else resolveConstraints' types ((t1, t2) : errs) cs
+      TVar m -> resolveConstraints' (M.insert m t1 types) errs cs
+      _ -> resolveConstraints' types ((t1, t2) : errs) cs
 
 -- | Replace type variables in an expression with their substitutions.
 --

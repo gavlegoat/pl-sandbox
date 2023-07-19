@@ -10,6 +10,7 @@ import Data.List (intercalate)
 
 import qualified Lexer as Lex
 import Source
+import Type
 
 }
 
@@ -30,13 +31,17 @@ import Source
 
 %token
   -- Keywords
-  let   { Lex.Let }
-  in    { Lex.In }
-  if    { Lex.If }
-  then  { Lex.Then }
-  else  { Lex.Else }
-  case  { Lex.Case }
-  of    { Lex.Of }
+  let     { Lex.Let }
+  in      { Lex.In }
+  if      { Lex.If }
+  then    { Lex.Then }
+  else    { Lex.Else }
+  case    { Lex.Case }
+  of      { Lex.Of }
+  data    { Lex.Data }
+  tint    { Lex.TInt }
+  tstring { Lex.TString }
+  tbool   { Lex.TBool }
   -- Parens
   '(' { Lex.LParen }
   ')' { Lex.RParen }
@@ -67,19 +72,43 @@ import Source
   '->' { Lex.Arrow }
   '='  { Lex.Defn }
   ';'  { Lex.Semi }
+  '|'  { Lex.Pipe }
 
 %%
 
-start :: { [Binding Info] }
-  : bindings         { reverse $1 }
-  | bindings ';' ';' { reverse $1 }
+start :: { Program Info }
+  : bindings         { splitProg $1 }
+  | bindings ';' ';' { splitProg $1 }
 
-bindings :: { [Binding Info] }
+bindings :: { [BindType Info] }
   : binding                  { [$1] }
   | bindings ';' ';' binding { $4 : $1 }
 
-binding :: { Binding Info }
-  : vars '=' expr { let v = reverse $1 in Binding () (head v) (tail v) $3 }
+binding :: { BindType Info }
+  : vars '=' expr { let v = reverse $1 in B $ Binding () (head v) (tail v) $3 }
+  | data constr '=' data_alts { T $ TypeDef () (getId $2) (reverse $4) }
+
+data_alts :: { [Constructor Info] }
+  : data_alt               { [$1] }
+  | data_alts '|' data_alt { $3 : $1 }
+
+data_alt :: { Constructor Info }
+  : constr types { Constructor () (getId $1) (reverse $2) }
+
+types :: { [Type] }
+  : {- empty -} { [] }
+  | types type  { $2 : $1 }
+
+type :: { Type }
+  : tint          { TInt }
+  | tstring       { TString }
+  | tbool         { TBool }
+  | constr        { TUser (getId $1) }
+  | '(' ftype ')' { $2 }
+
+ftype :: { Type }
+  : type '->' ftype { TArrow $1 $3 }
+  | constr type     { TConstr (getId $1) $2 }
 
 vars :: { [ByteString] }
   : id      { [getId $1] }
@@ -156,6 +185,15 @@ patterns :: { [Pattern Info] }
 {
 
 type Info = ()
+
+data BindType a = B (Binding a) | T (TypeDef a)
+
+splitProg :: [BindType a] -> Program a
+splitProg = splitProg' [] [] where
+  splitProg' ts vs [] = Program { pTypes = ts, pValues = vs }
+  splitProg' ts vs (b : bs) = case b of
+    B bind -> splitProg' ts (bind : vs) bs
+    T bind -> splitProg' (bind : ts) vs bs
 
 parseError :: (Lex.Token, [String]) -> Lex.Alex a
 parseError (_, exp) = do
