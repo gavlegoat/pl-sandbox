@@ -7,6 +7,7 @@ import Lexer (runAlex)
 import Parser (parseMain)
 import Checks
 import Typecheck
+import Desugar
 
 main :: IO ()
 main = do
@@ -17,5 +18,5 @@ main = do
     Right prog -> case runChecks prog of
       [] -> case inferTop prog of
         Left errs -> print "Type Errors" >> mapM_ print errs
-        Right typed -> print typed
+        Right typed -> print (desugar typed)
       errs -> print "Semantic Errors" >> mapM_ print errs

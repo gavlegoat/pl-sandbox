@@ -9,8 +9,8 @@ data LevelTwo = D Custom | E Custom ;;
 
 testFun2 x = case x of
   D (A n) -> "one" ;
-  D (B n s) -> "two" ;
+  D (B n s) -> s ;
   D C -> "three" ;
   E (A n) -> "four" ;
-  E (B n s) -> "five" ;
+  E (B n s) -> s ;
   E C -> "six" ; ;;

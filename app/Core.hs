@@ -11,7 +11,10 @@ the types here are simpler and omit a lot of the useful extra information
 carried by the GHC version for simplicity.
 -}
 module Core
-  ( Binding (..)
+  ( Program (..)
+  , TypeDef (..)
+  , Constructor (..)
+  , Binding (..)
   , Expr (..)
   , typeof
   , Atom (..)
@@ -25,20 +28,40 @@ module Core
   ) where
 
 import Data.ByteString.Lazy.Char8 (ByteString)
-import Data.List (intercalate)
 
 import Type
+
+data Program = Program { pTypes :: [TypeDef], pValues :: [Binding] }
+
+instance Show Program where
+  show (Program {pTypes = ts, pValues = vs}) =
+    unlines (map show ts) ++ "\n" ++ unlines (map show vs)
+
+data TypeDef = TypeDef ByteString [Constructor]
+  deriving (Eq)
+
+instance Show TypeDef where
+  show (TypeDef n cs) = "data " ++ show n ++ " =\n" ++
+    unlines (map (("  | " ++) . show) cs)
+
+data Constructor = Constructor ByteString [Type]
+  deriving (Eq)
+
+instance Show Constructor where
+  show (Constructor n ts) =
+    show n ++ " " ++ unwords (map (\t -> "(" ++ show t ++ ")") ts)
 
 -- | Associate a variable with some value.
 data Binding
   = BNonRec Var Expr   -- ^ Non-recursive binding.
   | BRec [(Var, Expr)] -- ^ A set of mutually recursive bindings.
+  deriving (Eq)
 
 instance Show Binding where
   show (BNonRec v e) = show v ++ " = " ++ show e
   show (BRec bs) =
     let showOne (v, e) = show v ++ " = " ++ show e
-     in "{" ++ intercalate " ; " (map showOne bs) ++ "}"
+     in "{" ++ unlines (map ((++ ";") . showOne) bs) ++ "}"
 
 -- | Type of expressions in the core language.
 data Expr
@@ -50,14 +73,15 @@ data Expr
   | ELet Type Binding Expr  -- ^ Local bindings.
   | EConstr Type ByteString -- ^ Constructors.
   | EAtom Type Atom         -- ^ Base expressions, variables and literals.
+  deriving (Eq)
 
 instance Show Expr where
   show (EApp _ f a) = "(" ++ show f ++ ") (" ++ show a ++ ")"
   show (ETyApp _ f t) = "(" ++ show f ++ ") (" ++ show t ++ ")"
   show (ELambda _ n b) = "\\" ++ show n ++ " -> (" ++ show b ++ ")"
   show (EBigLam _ n b) = "/\\" ++ show n ++ " => (" ++ show b ++ ")"
-  show (ECase _ e alts) = "case " ++ show e ++ " of " ++ show alts
-  show (ELet _ b e) = "let " ++ show b ++ " in (" ++ show e ++ show ")"
+  show (ECase _ e alts) = "case " ++ show e ++ " of\n" ++ show alts
+  show (ELet _ b e) = "let " ++ show b ++ "\n in (" ++ show e ++ ")"
   show (EConstr _ n) = show n
   show (EAtom _ a) = show a
 
@@ -74,6 +98,7 @@ typeof (EAtom ty _) = ty
 
 -- | Base-level expressions, variables and literals.
 data Atom = AVar Var | ALit Literal
+  deriving (Eq)
 
 instance Show Atom where
   show (AVar v) = show v
@@ -81,10 +106,11 @@ instance Show Atom where
 
 -- | Concrete values of a base type.
 data Literal = LInt Int | LString ByteString
+  deriving (Eq)
 
 instance Show Literal where
   show (LInt i) = show i
-  show (LString s) = show s
+  show (LString s) = "\"" ++ show s ++ "\""
 
 -- | Alternatives for a case statement.
 --
@@ -93,10 +119,11 @@ instance Show Literal where
 -- Each set of alternatives also comes with an optional default branch.
 data Alts = CAlts [CAlt] Default
           | LAlts [LAlt] Default
+          deriving (Eq)
 
 instance Show Alts where
-  show (CAlts as d) = intercalate " | " (map show as) ++ " | " ++ show d
-  show (LAlts as d) = intercalate " | " (map show as) ++ " | " ++ show d
+  show (CAlts as d) = unlines (map (("| " ++) . show) as) ++ "\n| " ++ show d
+  show (LAlts as d) = unlines (map (("| " ++) . show) as) ++ "\n| " ++ show d
 
 -- | Alternatives matching constructor patterns.
 --
@@ -104,18 +131,21 @@ instance Show Alts where
 -- nested patterns will be flattened into nested case statements in the
 -- desugaring pass.
 data CAlt = CAlt ByteString [Var] Expr
+  deriving (Eq)
 
 instance Show CAlt where
   show (CAlt c vs e) = unwords (show c : map show vs) ++ " -> " ++ show e
 
 -- | Alternatives matching literals.
 data LAlt = LAlt Literal Expr
+  deriving (Eq)
 
 instance Show LAlt where
   show (LAlt l e) = show l ++ " -> " ++ show e
 
 -- | Default values for case statements.
 data Default = NoDefault | Default Var Expr
+  deriving (Eq)
 
 instance Show Default where
   show NoDefault = ""
@@ -125,6 +155,7 @@ instance Show Default where
 --
 -- Variables in the core language are always typed.
 data Var = Var ByteString Type
+  deriving (Eq)
 
 instance Show Var where
   show (Var n t) = show n ++ " : " ++ show t

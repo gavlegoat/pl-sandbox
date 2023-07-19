@@ -76,11 +76,21 @@ import qualified Source as S
 import qualified Core as C
 import Type
 
--- | Desugar a top-level program.
+desugar :: S.Program Type -> C.Program
+desugar prog =
+  C.Program { C.pTypes = desugarTypeDefs (S.pTypes prog)
+            , C.pValues = desugarBindings (S.pValues prog) }
+
+desugarTypeDefs :: [S.TypeDef Type] -> [C.TypeDef]
+desugarTypeDefs = map desType where
+  desType (S.TypeDef _ n cs) = C.TypeDef n (map desConstr cs)
+  desConstr (S.Constructor _ n ts) = C.Constructor n ts
+
+-- | Desugar a list of bindings.
 --
 -- NOTE: All core bindings are currently recursive.
-desugar :: [S.Binding Type] -> [C.Binding]
-desugar binds = --[C.BRec $ map desugarBinding binds]
+desugarBindings :: [S.Binding Type] -> [C.Binding]
+desugarBindings binds =
   let bss = S.groupAndSort binds
       desugared = map (map desugarBinding) bss
    in map C.BRec desugared
