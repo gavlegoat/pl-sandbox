@@ -62,7 +62,7 @@ influenced by GHC. The code is laid out in the directory structure as follows:
 - `Type.hs` defines the types used by programs.
 - `Core.hs` is our intermediate language (following GHC).
 - `Cmm.hs` is a secondary intermediate language closer to the target language
-  (again, folling GHC). The Cmm langage is shared by both the strict and lazy
+  (again, folling GHC). The Cmm language is shared by both the strict and lazy
   backends.
 - `Frontend` contains everything up to the generation of core code.
   `Frontend.hs` serves as a wrapper for all of this functionality.
