@@ -18,8 +18,4 @@ genCmm prog = Cmm.Program $ map (binding (pTypes prog)) (pValues prog)
 
 -- | Generate C-- code for a single binding.
 binding :: R.Binding -> Cmm.Declaration
-binding ts (R.BNonRec v e) = getDec v e
-binding ts (R.BRec bs) = Cmm.Block $ zipWith getDec bs
-
-getDec :: R.Var -> R.Expr -> Cmm.Declaration
-getDec = undefined
+binding = undefined
